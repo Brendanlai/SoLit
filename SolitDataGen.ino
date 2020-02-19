@@ -2,7 +2,7 @@
    Logging data from 2 analog sensors
    The Circuit:
       Analog sensors at pins 0 and 1 (can change this by chanign the i value in the for loop)
-      
+
       SD card attached to SPI bus as follows: ??? Not sure about this part
     MOSI - pin 11
     MISO - pin 12
@@ -46,16 +46,19 @@ void loop() {
   for (int i = 0; i < 3; i++) {
 
     time = millis();
-    int sensVal = analogRead(i);
-
-    // Convert the temp int val to voltage (0-5)V:
-    float volt = sensVal * (5.0 / 1023);
+    
     if (i == 0) {
       toSD += time;
     } else {
+      
+      int sensVal = analogRead(i);
+      // Convert the temp int val to voltage (0-5)V:
+      float volt = sensVal * (5.0 / 1023);
       // Sends voltage data appending the float to string (4 decimals)
       toSD += String(volt, 3);
+    
     }
+    
     if ( i < 2) {
       toSD += ",";
     }

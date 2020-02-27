@@ -1,80 +1,135 @@
-/* IGEN230 Solit solar power collector
-   Logging data from 2 analog sensors
-   The Circuit:
-      Analog sensors at pins 0 and 1 (can change this by chanign the i value in the for loop)
-
-      SD card attached to SPI bus as follows: ??? Not sure about this part
-    MOSI - pin 11
-    MISO - pin 12
-    CLK - pin 13
-    CS - pin 4 (for MKRZero SD: SDCARD_SS_PIN)
+/*Arduino Temperature Voltage Data Logger with SD Mod
+   https://randomnerdtutorials.com/arduino-temperature-data-logger-with-sd-card-module/
+   To see the Schematics ^
 */
 
 #include <SPI.h>
 #include <SD.h>
+#include <RTClib.h>
+#include <DHT.h>
+#include <DHT_U.h>
 
+//Define DHT pin
+#define DHTPIN 2 //connected pin
 
-const int chipSelect = 10;
-unsigned long time;
+//Insert the type number we're using
+#define DHTTYPE DHT11   // DHT 11 
+
+//Initialize the DHT sensor
+DHT dht(DHTPIN, DHTTYPE);
+
+/*  Should change to match the SD shield or module
+    Arduino Ethernet sheild/modules : pin4
+    Datalogging SD shields/modules: pin10
+*/
+const int chipSelect = 4;
+
+//Create file to store data
+File myFile;
+
+//RTC
+RTC_DS1307 rtc;
 
 void setup() {
-  // Open Serial Communications and wait for port to open:
+  //initialize the DHT
+  dht.begin();
+
+  // initialize serial monitor
   Serial.begin(9600);
 
-  while (!Serial) {
-    ;//Wait for serial port connection
-  }
-
-  Serial.print("Initializing SD card...");
-  if (!SD.begin(chipSelect)) {
-    Serial.println("Card not present or failed!");
+  // setup RTC
+  while (!Serial);
+  if (! rtc.begin()) {
+    Serial.println("Couldn't find RTC");
     while (1);
+  } else {
+    //sets RTC to the date&time of the sketch was compiled
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
-  Serial.println("Card Initialized");
+  if (! rtc.isrunning()) {
+    Serial.println("RTC NOT running");
+  }
 
+  // setup SD Card
+  Serial.print("Initializing SD");
+
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Initialization failed");
+    return;
+  }
+  Serial.println("Completed initialization");
+
+  // if file correctly opened, write to it:
+  if (myFile) {
+    Serial.println("File opened ok");
+    //print data headings
+    myFile.println("Date,Time,V1,V2");
+  }
+  myFile.close();
+}
+
+void loggingTime() {
+  DateTime now = rtc.now();
+  myFile = SD.open("Data.txt", FILE_WRITE);
+  if (myFile) {
+    myFile.print(now.year(), DEC);
+    myFile.print('/');
+    myFile.print(now.month(), DEC);
+    myFile.print('/');
+    myFile.print(now.day(), DEC);
+    myFile.print(',');
+    myFile.print(now.hour(), DEC);
+    myFile.print(':');
+    myFile.print(now.minute(), DEC);
+    myFile.print(':');
+    myFile.print(now.second(), DEC);
+    myFile.print(",");
+  }
+  Serial.print(now.year(), DEC);
+  Serial.print('/');
+  Serial.print(now.month(), DEC);
+  Serial.print('/');
+  Serial.println(now.day(), DEC);
+  Serial.print(now.hour(), DEC);
+  Serial.print(':');
+  Serial.print(now.minute(), DEC);
+  Serial.print(':');
+  Serial.println(now.second(), DEC);
+  myFile.close();
   delay(1000);
 }
 
-void loop() {
-  // Create string for data logging:
-  String toSD = "";
-  String fileName = String(millis());
-  fileName += ".txt";
-  File dataFile = SD.open(fileName, FILE_WRITE);
+void loggingVoltage() {
+  // Finding voltage from temperature reading
+  // Read temp/humidty takes approx. 250 ms
+  // Sensor readings may be up to 2 seconds old (slow sensor)
+  // Read temp as celsius and convert to voltage
+  float t = dht.readTemperature();
+  float v = t * 5.0 / 1024.0;
 
-  // Read three sensors and xappend to the string:
-  for (int i = 0; i < 3; i++) {
-
-    time = millis();
-    
-    if (i == 0) {
-      toSD += time;
-    } else {
-      
-      int sensVal = analogRead(i);
-      // Convert the temp int val to voltage (0-5)V:
-      float volt = sensVal * (5.0 / 1023);
-      // Sends voltage data appending the float to string (4 decimals)
-      toSD += String(volt, 3);
-    
-    }
-    
-    if ( i < 2) {
-      toSD += ",";
-    }
-
+  // Check if reads ahve failed and exit
+  if (isnan(t)) { /*|| isnan(f)*/
+    Serial.println("Failed to read from DHT");
+    return;
   }
 
-  toSD += "\n";
-  delay(1000);
+  //debugging
+  Serial.print("Voltage");
+  Serial.print(v);
+  Serial.print("V");
 
-  Serial.println(toSD);
-  Serial.println(fileName);
+  myFile = SD.open(("Data.txt"), FILE_WRITE);
+  if (myFile) {
+    Serial.println("open successfully");
+    myFile.print(v);
+    myFile.print(",");
+  }
+  myFile.close();
+}
 
-  dataFile.println(toSD);
-  dataFile.close();
-  toSD = "";
-
-  //serial.println("NEW FILE!");
-
+void loop() {
+  // put your main code here, to run repeatedly:
+  loggingTime();
+  loggingVoltage();
+  loggingVoltage();
 }

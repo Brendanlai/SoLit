@@ -6,23 +6,24 @@
 #include <SPI.h>
 #include <SD.h>
 #include <RTClib.h>
-#include <DHT.h>
-#include <DHT_U.h>
+// #include <DHT.h>
+// #include <DHT_U.h>
 
 //Define DHT pin
-#define DHTPIN 2 //connected pin
+// #define DHTPIN 2 //connected pin
 
-//Insert the type number we're using
-#define DHTTYPE DHT11   // DHT 11 
+// Insert the type number we're using
+//#define DHTTYPE DHT11   // DHT 11 
 
-//Initialize the DHT sensor
-DHT dht(DHTPIN, DHTTYPE);
+// Initialize the DHT sensor
+// DHT dht(DHTPIN, DHTTYPE);
 
 /*  Should change to match the SD shield or module
     Arduino Ethernet sheild/modules : pin4
     Datalogging SD shields/modules: pin10
 */
 const int chipSelect = 4;
+const int numPin = 2;
 
 //Create file to store data
 File myFile;
@@ -32,7 +33,7 @@ RTC_DS1307 rtc;
 
 void setup() {
   //initialize the DHT
-  dht.begin();
+//   dht.begin();
 
   // initialize serial monitor
   Serial.begin(9600);
@@ -100,36 +101,34 @@ void loggingTime() {
 }
 
 void loggingVoltage() {
-  // Finding voltage from temperature reading
-  // Read temp/humidty takes approx. 250 ms
-  // Sensor readings may be up to 2 seconds old (slow sensor)
-  // Read temp as celsius and convert to voltage
-  float t = dht.readTemperature();
-  float v = t * 5.0 / 1024.0;
-
-  // Check if reads ahve failed and exit
-  if (isnan(t)) { /*|| isnan(f)*/
-    Serial.println("Failed to read from DHT");
-    return;
-  }
-
-  //debugging
-  Serial.print("Voltage");
-  Serial.print(v);
-  Serial.print("V");
-
+  // Open File
   myFile = SD.open(("Data.txt"), FILE_WRITE);
   if (myFile) {
     Serial.println("open successfully");
+  }
+
+  // Continue loop to capture data for set amount of pins
+  // Loop starts at 0 and thus pin must connect to pin 0 increasing to whatever you want to end with
+  for (int i = 0; i < numPin; i++) {
+
+    // Record from pin and convert the temp reading to voltage.
+    int t = analogRead(i);
+    float v = t * 5.0 / 1023.0;
     myFile.print(v);
     myFile.print(",");
+
+    //debugging
+    Serial.print("Voltage");
+    Serial.print(v);
+    Serial.print("V");
   }
+  myFile.println();
   myFile.close();
 }
+
 
 void loop() {
   // put your main code here, to run repeatedly:
   loggingTime();
-  loggingVoltage();
   loggingVoltage();
 }

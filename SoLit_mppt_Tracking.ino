@@ -1,7 +1,9 @@
 /*  Perturb and Observe Algorithm Implementation
     Used for tracking Max. power abs. from Mppt. curve
-
-
+    
+    To Do:  Implement the values from the panel spec sheet
+            Understand the way we want to adjust this (pwm output?)
+            Integrate the panel tracking?
 */
 
 #include <TimerOne.h>

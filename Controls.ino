@@ -34,8 +34,8 @@ void chargeState(int val){
   if (val > maxVolt || val < minVolt){
     digitalWrite(pinBms, LOW);
   }
-  digitalWrite(pinBms, HIGH);
-  
+ 
+  digitalWrite(pinBms, HIGH); 
 }
 /*Detects if there is motion, runs HIGH for "x" period of time before returning to LOW*/
 void motionSensor(){
@@ -61,5 +61,4 @@ void loop() {
   toVoltage(val0);
   chargeState(val0);
   motionSensor();
-  
 }

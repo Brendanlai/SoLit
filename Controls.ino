@@ -31,10 +31,8 @@ int toVoltage(int sensorValue){
 /* Checks if SOC is either too high or too low*/
 void chargeState(int val){
   
-  if (val > maxVolt){
+  if (val > maxVolt || val < minVolt){
     digitalWrite(pinBms, LOW);
-  }else if(val < minVolt){
-    digitalWrite(pinBms, LOW);  
   }
   digitalWrite(pinBms, HIGH);
   

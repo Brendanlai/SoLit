@@ -6,17 +6,7 @@
 #include <SPI.h>
 #include <SD.h>
 #include <RTClib.h>
-// #include <DHT.h>
-// #include <DHT_U.h>
 
-//Define DHT pin
-// #define DHTPIN 2 //connected pin
-
-// Insert the type number we're using
-//#define DHTTYPE DHT11   // DHT 11 
-
-// Initialize the DHT sensor
-// DHT dht(DHTPIN, DHTTYPE);
 
 /*  Should change to match the SD shield or module
     Arduino Ethernet sheild/modules : pin4

@@ -30,27 +30,33 @@ int toVoltage(int sensorValue){
 
 /* Checks if SOC is either too high or too low*/
 void chargeState(int val){
+  
   if (val > maxVolt){
     digitalWrite(pinBms, LOW);
   }else if(val < minVolt){
     digitalWrite(pinBms, LOW);  
   }
   digitalWrite(pinBms, HIGH);
+  
 }
 /*Detects if there is motion, runs HIGH for "x" period of time before returning to LOW*/
 void motionSensor(){
+ 
   pirState1 = analogRead(pinSens1);
   pirState2 = analogRead(pinSens2);
   
-  if (pirState1 == HIGH || pirState2 == HIGH){
+  do{
     digitalWrite(pinLight, HIGH);
-    delay(walkDelay);
-  }
-  pirState1 = LOW;
-  pirState2 = LOW;
-
+  } while(pirState1 == HIGH || pirState2 == HIGH);
+  
+  //delay 5 extra seconds then turn off
+  delay(2000);
+  digitalWrite(pinLight, LOW);
 }
+
+/* Main Loop*/
 void loop() {
+ 
   // read SOC pins
   int val0= analogRead(pinSoC); //state of charge
   

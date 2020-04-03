@@ -1,164 +1,290 @@
-/*  Perturb and Observe Algorithm Implementation
-    Used for tracking Max. power abs. from Mppt. curve
-    
-    To Do:  Implement the values from the panel spec sheet
-            Understand the way we want to adjust this (pwm output?)
-            Integrate the panel tracking?
-*/
+/*  MPPT Solar Charger Arduino
+ *  By: Brendan Lai adapted from https://create.arduino.cc/projecthub/abhi_verma/arduino-pv-mppt-solar-charger-371474
+ *  See Trello for documentation
+ *  Uses P&O algorithm to regulate the charge voltage being sent from the panel to the battery to maximize.
+ *  IGEN230
+ */
 
-#include <TimerOne.h>
-#include <SPI.h>
-#include <SD.h>
-#include <RTClib.h>
+// #include <LiquidCrystal.h>
+// #include <avr/wdt.h>
+// #include <EEPROM.h>
+#define vin_pin A1
+#define vout_pin A0
+#define iout_pin A2
+#define iin_pin A3
+#define lm35 A4
+#define fan 5
+#define buck_pin 6
+#define menu 3
+#define button 2
+#define Bat 13
+#define charge_Bat A5
+#define light 4
 
-  const int chipSelect = 4; //SD pin
-  int fill; //Fill these vals
-  int v_in = A0, i_in = A3, pwm_pin = 9; // the input and output pins
-  int samples = 20;
-  double Vpv, Ipv, Ppv, V_pv, Vpv_old, Ppv_old = 0;
-  double dV, dP, err, P_PI, I_PI = 0.0;
-  double Vref, Vref_old = fill , del_V = fill;
-  double Vref_ul = fill, Vref_ll = fill;
-  double Kp = 0.138, Ki = 15.173;
-  int D = 512, D_old = 512;
-  double D_temp, D_temp_old = 0;
-  long timeDiff, prevTime = 0;
+uint8_t auto_mode= 1;
+float Pin=0,Pout=0,Pin_previous=0;
+float efficiency=0.0;
+int raw_vin, raw_vout, raw_iout,raw_iin, raw_lm35=0;
+float Vout_boost = 18.3,Vout_max = 20.0, Iout_max = 2.9, Vout_float = 13.5, Iout_min = 0.00, Vin_thresold = 15.0;
+float Iout_sense,Iin_sense,Iin;
+float Vout_sense,Vin_last;
+float heat_sink_temp;
+float Vin_sense;
+uint8_t duty_cycle = 0;
+float volt_factor = 0.05376; //change this value to calibrate voltage readings...
+String mode="";
+bool startup=true, lcd_stat=true,charge=true,mppt_init = true;
+unsigned int count=0;
 
-  File myFile;
-  RTC_DS1307 rtc;
-  
-
-void setup(){
-  // For actuator
-  pinMode(pwm_pin, OUTPUT);
-  Timer1.initialize(20);
-  Timer1.pwm(pwm_pin, D);
-  Serial.begin(9600);
-  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-
-  if (myFile) {
-    Serial.println("File opened ok");
-    //print data headings
-    myFile.println("Date,Time,V1,V2");
+void mppt();
+void setup() {
+ 
+  Serial.begin(115200);
+  pinMode(light,OUTPUT);
+  pinMode(charge_Bat,OUTPUT);
+  digitalWrite(charge_Bat,LOW);
+  digitalWrite(light,HIGH);
+  pinMode(Bat,OUTPUT);
+  analogWrite(buck_pin,0);
+ 
+  for(int i=0;i<10;i++) {
+    raw_iout += analogRead(iout_pin)-513;
+    raw_iin += analogRead(iin_pin)-513;
+    raw_vin += analogRead(vin_pin);
+    raw_vout += analogRead(vout_pin);
+    raw_lm35 += analogRead(lm35);
+    delay(2);
   }
-  myFile.close();
+
+  raw_iout = raw_iout / 10;
+  raw_iin = raw_iin / 10;
+  raw_vout = raw_vout / 10;
+  raw_vin = raw_vin / 10;
+  Iout_sense = float(raw_iout) *5/1023/0.066;
+  Iin_sense = float(raw_iin) *5/1023/0.066;
+
+  Vin_sense = float(raw_vin) * volt_factor;
+ 
 }
 
-/*Functions*/
+////This function provides various regulations and MPPT implementation...
+void regulate(float Iout, float Vin, float Vout) {
+  mode="";
+  mode="Buck mode";
 
-// Reading input signal from analog pin (in temp
-int pinRead(int pinNum){
-  unsigned long int sum = 0;
-  int x = 0;
+  if((Vout>Vout_max) || (Iout>Iout_max) || ((Pin>Pin_previous && Vin_sense<Vin_last) || (Pin<Pin_previous && Vin_sense>Vin_last))) {
+    if(duty_cycle>0) {
+    duty_cycle-=1;
+    }
+    analogWrite(buck_pin,duty_cycle);
+  } else if((Vout<Vout_max) && (Iout<Iout_max) && ((Pin>Pin_previous && Vin_sense>Vin_last) || (Pin<Pin_previous && Vin_sense<Vin_last))) {
+      if(duty_cycle<250) {
+      duty_cycle+=1;
+    }
+    analogWrite(buck_pin,duty_cycle);
+  }
+  
+  Pin_previous = Pin;
+  Vin_last = Vin;
+}
 
-  for(int i = 0; i < samples; i++){
-    x = analogRead(pinNum);
-    sum += x;
+void auto_cutoff(float Iout,float Vin, float Vout){
+  
+  if(Vout<=Vout_float && Iout>Iout_min+1){
+    charge = true;
+  }
+  
+  if((Vout>Vout_max) && (Iout<Iout_min) && (charge==true)) {
+    
+    charge = false;
+    Serial.println("Charging Completed.");
+    digitalWrite(Bat,HIGH);
+    digitalWrite(charge_Bat,LOW);
+
+    } else if(Vin<Vin_thresold) {
+      
+      duty_cycle=0;
+      analogWrite(buck_pin,duty_cycle);
+      Serial.println("LOW Input Voltage.");
+      
+      for(int i=0;i<10;i++){
+        digitalWrite(Bat,HIGH);
+        digitalWrite(charge_Bat,LOW);
+        delay(6000);
+        digitalWrite(charge_Bat,HIGH);
+        digitalWrite(Bat,LOW);
+        delay(6000);
+    }
+
+  } else if(heat_sink_temp>80.0) {
+    
+    duty_cycle=0;
+    analogWrite(buck_pin,duty_cycle);
+    Serial.println("Over Heat Shutdown");
+
+    for(int i=0;i<10;i++){
+      digitalWrite(Bat,HIGH);
+      digitalWrite(charge_Bat,LOW);
+      delay(4000);
+      digitalWrite(charge_Bat,HIGH);
+      digitalWrite(Bat,LOW);
+      delay(4000);
+    }
+
+  } else {
+    charge = true;
+    digitalWrite(charge_Bat,HIGH);
+    regulate(Iout_sense, Vin_sense, Vout_sense);
+    digitalWrite(Bat,LOW);
+  }
+}
+
+void soft_start() {
+  for(int i=0;i<20;i++) {
+    regulate(Iout_sense, Vin_sense, Vout_sense);
+    Serial.print("Vin= ");Serial.println(Vin_sense);
+    Serial.print("Vout= ");Serial.println(Vout_sense);
+    Serial.print("Iout= ");Serial.println(Iout_sense);
+    Serial.print("Duty cycle= ");Serial.println(duty_cycle);
+    Serial.print("Charger MODE : ");Serial.println(mode);
+    Serial.println("Soft Start Activated");
+    delay(32000);
+  }
+ 
+  startup=false;
+  mppt_init = false;
+}
+
+void set_limits(int cmd,int temp){
+  switch(cmd) {
+    case 1:
+    Vout_boost=float(temp)/10;
+    Serial.print("Vout_boost= ");
+    Serial.println(Vout_boost);
+    break;
+    case 2:
+    Vout_float=float(temp)/10;
+    Serial.print("Vout_float= ");
+    Serial.println(Vout_float);
+    break;
+    case 3:
+    Iout_max=float(temp)/10;
+    Serial.print("Iout_max= ");
+    Serial.println(Iout_max);
+    break;
+    case 4:
+    Iout_min=float(temp)/10;
+    Serial.print("Iout_min= ");
+    Serial.println(Iout_min);
+    break;
+    case 5:
+    auto_mode=~auto_mode;
+    if(auto_mode==1){
+    Serial.println("Auto Mode ON    ");
+    }
+    else {
+    Serial.println("Auto Mode OFF   ");
+    }
+    break;
+    case 6:
+    Vin_thresold=float(temp)/10;
+    Serial.print("Vin_thresold= ");
+    Serial.println(Vin_thresold);
+    break;
+  }
+}
+
+void loop() {
+
+  if(charge){
+    Vout_max = Vout_boost;
+  } else {
+    Vout_max = Vout_float;
+  }
+  
+  raw_vin, raw_vout, raw_iout, raw_lm35 = 0;
+ 
+  if(Serial.available()>0) {
+    String data = Serial.readString();
+    int temp = data.toInt();
+    int func = temp%10;
+    temp = temp/10;
+    set_limits(func,temp);
+  }
+  
+  
+  for(int i = 0; i < 10; i++){
+    raw_iout += analogRead(iout_pin)-513;
+    raw_iin += analogRead(iin_pin)-513;
+    raw_vin += analogRead(vin_pin);
+    raw_vout += analogRead(vout_pin);
+    raw_lm35 += analogRead(lm35);
     delay(1);
   }
-  int avg = sum / samples;
 
-  return(avg);
-}
+  raw_iout = raw_iout / 10;
+  raw_iin = raw_iin / 10;
+  raw_vout = raw_vout / 10;
+  raw_vin = raw_vin / 10;
+  raw_lm35 = raw_lm35 / 10;
 
-// Reading inputs and converting analog values
-void readData(){
-  Vpv = pinRead(v_in) * 11.0 * (5.0/1023.0);
-  Ipv = pinRead(i_in) * (5.0/1023.0);
-  Ppv = Vpv * Ipv;
-}
-
-// P & O - MPPT alogrithm using Vref
-void PnO(){
-  dV = Vpv- Vpv_old;
-  dP = Ppv - Ppv_old;
-  if (dP > 0.0){
-    if (dV > 0.0){
-       Vref = Vref_old + del_V;     
-    }else{
-      Vref = Vref_old - del_V;
-    }
-  }else{
-    if (dV < 0.0){
-      Vref = Vref_old - del_V;
-    }else{
-       Vref = Vref_old + del_V;
-    }
-  }
-  range();
-}
-
-// Keep Vref within the correct range
-void range(){
-  if ((Vref > Vref_ul) || (Vref< Vref_ll)){
-    Vref = Vref_old;
-  }
-}
-
-// generate PWM pulses 
-void pwmDuty(){
-  err = Vpv - Vref;
-  P_PI = Kp * err; //Proportionality
-
-  timeDiff = ((millis() - prevTime))/1000;
-  I_PI += (Ki * err) * timeDiff; //integral term
-
-  prevTime = millis();
-
-  D_temp = P_PI + I_PI; //generated duty cycle
-
-  D = abs(D_temp * 1023); //Converting pwm scale of 0-1023
-
-  if (D > 900 || D < 100){
-    D = D_old;
-  }
-  Timer1.pwm(pwm_pin, D);
-}
-
-// Recording data obtained
-void dataSD(){
-  DateTime now = rtc.now();
-  myFile = SD.open(("Data.txt"), FILE_WRITE);
+  Iout_sense = float(raw_iout) *5/1023/0.066;
+  Iin_sense = float(raw_iin) *5/1023/0.066;
+  Vin_sense = Vin_sense * 0.92 + float(raw_vin) * volt_factor * 0.08;
+  Vout_sense = Vout_sense * 0.92 + float(raw_vout) * volt_factor * 0.08; //measure output voltage.
   
-  if (myFile) {
-    Serial.println("open successfully");
+  if(Iout_sense<0.0){
+    Iout_sense= Iout_sense*(-1);
+  }
+
+  if(Iin_sense<0.0){
+    Iin_sense = Iin_sense*(-1);
+  } 
+
+  Pin = Vin_sense*Iin_sense;
+  Pout = Vout_sense*Iout_sense;
+  efficiency = Pout*100/Pin;
+  
+  if(efficiency<0.0){
+    efficiency=0.0;
+  }
+
+  if(count>100) {
+    Serial.print("heat_sink_temp = "); Serial.println(heat_sink_temp);
+    Serial.print("Raw= ");Serial.println(raw_iout);
+    Serial.print("Vin= ");Serial.println(Vin_sense);
+    Serial.print("Iin= ");Serial.println(Iin_sense);
+    Serial.print("Vout= ");Serial.println(Vout_sense);
+    Serial.print("Iout= ");Serial.println(Iout_sense);
+    Serial.print("Duty cycle= ");Serial.print(duty_cycle/2.55);Serial.println("%");
+    Serial.print("PV power = ");Serial.println(Pin);
+    Serial.print("Output power = ");Serial.println(Pout);
+    Serial.print("Efficiency = ");Serial.print(efficiency);Serial.println("%");
+    Serial.print("Converter MODE : ");Serial.println(mode);
+ 
+    digitalWrite(Bat,HIGH);
+    delay(16000);
+    count = 0;
+  }
+
+  if(startup==false) {
     
-    myFile.print(now.hour(), DEC);
-    myFile.print(':');
-    myFile.print(now.minute(), DEC);
-    myFile.print(':');
-    myFile.print(now.second(), DEC);
-    myFile.print(",");
-
-    myFile.print(Vpv);
-    myFile.print(",");
-    myFile.print(Ipv);
-    myFile.print(",");
-    myFile.print(Vref);
-    myFile.print(",");
-    myFile.print(Ppv);
-    myFile.print(",");
-    myFile.print(D);
-    myFile.print(",");
-    myFile.println(D_temp);
+    if(auto_mode==1){
+      auto_cutoff(Iout_sense,Vin_sense, Vout_sense);
+    } else {
+      digitalWrite(charge_Bat,HIGH);
+      regulate(Iout_sense,Vin_sense, Vout_sense);
+      digitalWrite(Bat,~digitalRead(Bat));
+    }
   }
   
+  if(heat_sink_temp>45.0){
+    digitalWrite(fan,HIGH);
+  } else if (heat_sink_temp<37.0) {
+    digitalWrite(fan,LOW);
+  }
+
+  count++;
+
 }
 
-// Save data for current iteration
-void saveData(){
-  D_old = D;
-  D_temp_old = D_temp;
-  Vpv_old = Vpv;
-  Ppv_old = Ppv;
-  Vref_old = Vref;
- }
-
-void loop(){
-  readData();
-  PnO();
-  pwmDuty();
-  dataSD();
-  saveData();
-  delay(500);
-}

@@ -45,13 +45,13 @@ void extend(){
 
 void loop(){
   while(now.hour > 07 && now.hour < 19){
-    do{
+    while((now.second ==  00 && now.minute ==00) || (now.second == 00 && now.minute == 30)){
       if(mode == 0){
         retract();
       }else if(mode == 1){
         extend();
       }
-    }while((now.second ==  00 && now.minute ==00) || (now.second == 00 && now.minute == 30))
+    }
   }
   if(mode == 0){
     extend();

@@ -43,9 +43,9 @@ void motionSensor(){
   pirState1 = analogRead(pinSens1);
   pirState2 = analogRead(pinSens2);
   
-  do{
+  while(pirState1 == HIGH || pirState2 == HIGH){
     digitalWrite(pinLight, HIGH);
-  } while(pirState1 == HIGH || pirState2 == HIGH);
+  } 
   
   //delay 5 extra seconds then turn off
   delay(2000);
